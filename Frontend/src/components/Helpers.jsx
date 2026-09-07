@@ -1,36 +1,40 @@
-export const getTimeFrameRange = (timeFrame) => {
-  const now = new Date();
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-
+export const getTimeFrameRange = (timeFrame, customDate = null) => {
+  const base = customDate ? new Date(customDate) : new Date();
+  
   if (timeFrame === "daily") {
-    return { start, end: new Date(now), label: "Today" };
+    const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
+    const end = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 59, 59, 999);
+    return { start, end, label: "Today" };
   }
 
   if (timeFrame === "weekly") {
-    const startOfWeek = new Date(start);
-    startOfWeek.setDate(start.getDate() - start.getDay());
-    startOfWeek.setHours(0, 0, 0, 0);
-    return { start: startOfWeek, end: new Date(now), label: "This Week" };
+    const start = new Date(base);
+    start.setDate(base.getDate() - base.getDay());
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return { start, end, label: "This Week" };
   }
 
   if (timeFrame === "monthly") {
-    const startOfMonth = new Date(start.getFullYear(), start.getMonth(), 1);
-    startOfMonth.setHours(0, 0, 0, 0);
-    return { start: startOfMonth, end: new Date(now), label: "This Month" };
+    const start = new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0, 0);
+    const end = new Date(base.getFullYear(), base.getMonth() + 1, 0, 23, 59, 59, 999);
+    return { start, end, label: "This Month" };
   }
 
   // yearly
   if (timeFrame === "yearly") {
-    const startOfYear = new Date(start.getFullYear(), 0, 1);
-    startOfYear.setHours(0, 0, 0, 0);
-    return { start: startOfYear, end: new Date(now), label: "This Year" };
+    const start = new Date(base.getFullYear(), 0, 1, 0, 0, 0, 0);
+    const end = new Date(base.getFullYear(), 11, 31, 23, 59, 59, 999);
+    return { start, end, label: "This Year" };
   }
 
   // default -> monthly
-  const startOfMonth = new Date(start.getFullYear(), start.getMonth(), 1);
-  return { start: startOfMonth, end: new Date(now), label: "This Month" };
-};  // to filter according to day, month and year
+  const start = new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0, 0);
+  const end = new Date(base.getFullYear(), base.getMonth() + 1, 0, 23, 59, 59, 999);
+  return { start, end, label: "This Month" };
+};
 
 export const getPreviousTimeFrameRange = (timeFrame) => {
   const now = new Date();
@@ -70,11 +74,21 @@ export const getPreviousTimeFrameRange = (timeFrame) => {
     const startOfLastMonth = new Date(
       start.getFullYear(),
       start.getMonth() - 1,
-      1
+      1,
+      0,
+      0,
+      0,
+      0
     );
-    startOfLastMonth.setHours(0, 0, 0, 0);
-    const endOfLastMonth = new Date(start.getFullYear(), start.getMonth(), 0);
-    endOfLastMonth.setHours(23, 59, 59, 999);
+    const endOfLastMonth = new Date(
+      start.getFullYear(),
+      start.getMonth(),
+      0,
+      23,
+      59,
+      59,
+      999
+    );
     return {
       start: startOfLastMonth,
       end: endOfLastMonth,
@@ -83,8 +97,7 @@ export const getPreviousTimeFrameRange = (timeFrame) => {
   }
 
   if (timeFrame === "yearly") {
-    const startOfLastYear = new Date(start.getFullYear() - 1, 0, 1);
-    startOfLastYear.setHours(0, 0, 0, 0);
+    const startOfLastYear = new Date(start.getFullYear() - 1, 0, 1, 0, 0, 0, 0);
     const endOfLastYear = new Date(
       start.getFullYear() - 1,
       11,
@@ -101,11 +114,21 @@ export const getPreviousTimeFrameRange = (timeFrame) => {
   const startOfLastMonth = new Date(
     start.getFullYear(),
     start.getMonth() - 1,
-    1
+    1,
+    0,
+    0,
+    0,
+    0
   );
-  startOfLastMonth.setHours(0, 0, 0, 0);
-  const endOfLastMonth = new Date(start.getFullYear(), start.getMonth(), 0);
-  endOfLastMonth.setHours(23, 59, 59, 999);
+  const endOfLastMonth = new Date(
+    start.getFullYear(),
+    start.getMonth(),
+    0,
+    23,
+    59,
+    59,
+    999
+  );
   return { start: startOfLastMonth, end: endOfLastMonth, label: "Last Month" };
 };
 
@@ -126,24 +149,25 @@ export const calculateData = (transactions) => {
   return { ...totals, savings: totals.income - totals.expenses };
 };
 
-export const generateChartPoints = (timeFrame) => {
+export const generateChartPoints = (timeFrame, customRange = null) => {
   const now = new Date();
   const points = [];
 
   if (timeFrame === "daily") {
     // Generate 24 hours for daily view
     for (let i = 0; i < 24; i++) {
-      const hour = new Date(now);
-      hour.setHours(i, 0, 0, 0);
+      const hourDate = new Date(now);
+      hourDate.setHours(i, 0, 0, 0);
+      const hour12 = i === 0 ? 12 : i > 12 ? i - 12 : i;
+      const ampm = i >= 12 ? "PM" : "AM";
       points.push({
-        date: hour,
-        label: hour.toLocaleTimeString([], { hour: "2-digit" }),
+        date: hourDate,
+        label: `${hour12} ${ampm}`,
         hour: i,
         isCurrent: i === now.getHours(),
       });
     }
   } else if (timeFrame === "weekly") {
-    // Generate 7 days for weekly view (Sunday -> Saturday)
     const start = new Date(now);
     start.setDate(now.getDate() - now.getDay());
     start.setHours(0, 0, 0, 0);
@@ -154,38 +178,50 @@ export const generateChartPoints = (timeFrame) => {
       points.push({
         date: day,
         label: day.toLocaleDateString("en-US", { weekday: "short" }),
+        dayOfMonth: day.getDate(),
+        month: day.getMonth(),
+        year: day.getFullYear(),
         isCurrent:
-          day.getDate() === now.getDate() && day.getMonth() === now.getMonth(),
+          day.getDate() === now.getDate() &&
+          day.getMonth() === now.getMonth() &&
+          day.getFullYear() === now.getFullYear(),
       });
     }
   } else if (timeFrame === "monthly") {
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const daysInMonth = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0
-    ).getDate();
+    const baseDate = customRange?.start || now;
+    const year = baseDate.getFullYear();
+    const month = baseDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
 
     for (let i = 1; i <= daysInMonth; i++) {
-      const day = new Date(now.getFullYear(), now.getMonth(), i);
+      const day = new Date(year, month, i);
       points.push({
         date: day,
-        label: day.toLocaleDateString("en-US", { day: "numeric" }),
-        isCurrent: i === now.getDate(),
+        label: `${i}`,
+        dayOfMonth: i,
+        month,
+        year,
+        isCurrent:
+          i === now.getDate() &&
+          month === now.getMonth() &&
+          year === now.getFullYear(),
       });
     }
   } else if (timeFrame === "yearly") {
+    const baseDate = customRange?.start || now;
+    const year = baseDate.getFullYear();
+
     for (let i = 0; i < 12; i++) {
-      const month = new Date(now.getFullYear(), i, 1);
+      const monthDate = new Date(year, i, 1);
       points.push({
-        date: month,
-        label: month.toLocaleDateString("en-US", { month: "short" }),
-        isCurrent: i === now.getMonth(),
+        date: monthDate,
+        label: monthDate.toLocaleDateString("en-US", { month: "short" }),
+        month: i,
+        year,
+        isCurrent: i === now.getMonth() && year === now.getFullYear(),
       });
     }
   } else {
-    // fallback -> monthly
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
     const daysInMonth = new Date(
       now.getFullYear(),
       now.getMonth() + 1,
@@ -196,7 +232,10 @@ export const generateChartPoints = (timeFrame) => {
       const day = new Date(now.getFullYear(), now.getMonth(), i);
       points.push({
         date: day,
-        label: day.toLocaleDateString("en-US", { day: "numeric" }),
+        label: `${i}`,
+        dayOfMonth: i,
+        month: now.getMonth(),
+        year: now.getFullYear(),
         isCurrent: i === now.getDate(),
       });
     }
@@ -204,5 +243,3 @@ export const generateChartPoints = (timeFrame) => {
 
   return points;
 };
-
-// Helper functions to help in filtering

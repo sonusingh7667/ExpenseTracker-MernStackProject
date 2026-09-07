@@ -4,9 +4,10 @@ import img1 from '../assets/logo.png';
 import { ChevronDown,LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { getToken, clearAuth } from '../utils/authUtils';
 
 
-const BASE_URL = "http://localhost:5173//api";
+const BASE_URL = "http://localhost:4000/api";
 
 const Navbar = ({user: propUser, onLogout}) => {
     const navigate = useNavigate();
@@ -21,17 +22,16 @@ const Navbar = ({user: propUser, onLogout}) => {
     useEffect(() => {
         const fetchUserData = async () => {
             try {
-                const token = localStorage.getItem("token");
+                const token = getToken();
                 if(!token) return;
 
                 const response = await axios.get(`${BASE_URL}/user/me` , {
                     headers: {Authorization: `Bearer ${token}`},
                 });
                 const userData = response.data.user || response.data;
-                setUser(userData);
             } 
             catch (err) {
-                console.error("failed to load profile", error);
+                console.error("failed to load profile", err);
             }
         };
         if(!propUser){
@@ -44,7 +44,7 @@ const Navbar = ({user: propUser, onLogout}) => {
 
     const handleLogout = () => {
         setMenuOpen(false);
-        localStorage.removeItem("token");
+        clearAuth();
         onLogout?.();
         navigate("/login");
     };

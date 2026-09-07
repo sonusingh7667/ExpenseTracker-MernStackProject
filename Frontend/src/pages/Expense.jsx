@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useNavigate } from "react-router-dom";
 import {
   Plus,
-  DollarSign,
+  IndianRupee,
   Download,
   Eye,
   Calendar,
@@ -22,6 +22,7 @@ import {
 } from "recharts";
 import axios from "axios";
 import { exportToExcel } from "../utils/exportUtils";
+import { getAuthHeaders, handleAuthError } from "../utils/authUtils";
 import FinancialCard from "../components/FinancialCard";
 import TimeFrameSelector from "../components/TimeFrame";
 import TransactionItem from "../components/TransactionItem";
@@ -60,6 +61,7 @@ function toIsoWithClientTime(dateValue) {
 }
 
 const ExpensePage = () => {
+  const navigate = useNavigate();
   // Get data from outlet context including refreshTransactions
   const { 
     transactions: outletTransactions = [], 
@@ -87,19 +89,13 @@ const ExpensePage = () => {
     type: "expense",
     category: "Food",
   });
-  const [ setOverview] = useState({
+  const [overview, setOverview] = useState({
     totalExpense: 0,
     averageExpense: 0,
     numberOfTransactions: 0,
     recentTransactions: [],
     range: "monthly",
   });
-
-  // Auth headers helper
-  const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem("token");
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }, []);
 
   // Fetch overview (GET /expense/overview?range=...)
   const fetchOverview = useCallback(async (range = timeFrame ?? "monthly") => {
@@ -118,8 +114,9 @@ const ExpensePage = () => {
       });
     } catch (err) {
       console.error("Failed to fetch expense overview:", err);
+      handleAuthError(err, navigate);
     }
-  }, [timeFrame, getAuthHeaders]);
+  }, [timeFrame, navigate]);
 
   // Initial load
   useEffect(() => {
@@ -216,14 +213,29 @@ const ExpensePage = () => {
 
     filteredTransactions.forEach(transaction => {
       const transDate = new Date(transaction.date);
-      const point = data.find(d =>
-        timeFrame === "daily"
-          ? d.hour === transDate.getHours()
-          : timeFrame === "yearly"
-          ? d.date.getMonth() === transDate.getMonth()
-          : d.date.getDate() === transDate.getDate() && d.date.getMonth() === transDate.getMonth()
-      );
-      point && (point.expense += Math.round(Number(transaction.amount)));
+      const amt = Math.round(Number(transaction.amount) || 0);
+
+      const point = data.find(d => {
+        if (timeFrame === "daily") {
+          return d.hour === transDate.getHours();
+        } else if (timeFrame === "weekly" || timeFrame === "monthly") {
+          return (
+            d.dayOfMonth === transDate.getDate() &&
+            d.month === transDate.getMonth() &&
+            d.year === transDate.getFullYear()
+          );
+        } else if (timeFrame === "yearly") {
+          return (
+            d.month === transDate.getMonth() &&
+            d.year === transDate.getFullYear()
+          );
+        }
+        return false;
+      });
+
+      if (point) {
+        point.expense += amt;
+      }
     });
 
     return data;
@@ -248,8 +260,10 @@ const ExpensePage = () => {
       return response;
     } catch (err) {
       console.error(`${method} request error:`, err);
-      const serverMsg = err?.response?.data?.message;
-      alert(serverMsg || `Server error while ${method === 'post' ? 'adding' : method === 'put' ? 'updating' : 'deleting'} expense.`);
+      if (!handleAuthError(err, navigate)) {
+        const serverMsg = err?.response?.data?.message;
+        alert(serverMsg || `Server error while ${method === 'post' ? 'adding' : method === 'put' ? 'updating' : 'deleting'} expense.`);
+      }
       throw err;
     } finally {
       setLoading(false);
@@ -273,7 +287,7 @@ const ExpensePage = () => {
 
       // If added date is outside the current visible range, switch view to that month
       const addedDate = new Date(payload.date || newTransaction.date);
-      const addedDateInRange = addedDate >= timeFrameRange.start && addedDate <= timeFrameRange.end;
+      const addedDateInRange = isDateInRange(addedDate, timeFrameRange.start, timeFrameRange.end);
 
       if (!addedDateInRange) {
         setTimeFrame("monthly");
@@ -326,25 +340,37 @@ const ExpensePage = () => {
         responseType: "blob",
       });
 
+      if (res.data.type === "application/json") {
+        const text = await res.data.text();
+        let errorMsg = "Export failed";
+        try {
+          const json = JSON.parse(text);
+          errorMsg = json.message || errorMsg;
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+
       const blob = new Blob([res.data], {
-        type: res.headers["content-type"] || "application/octet-stream",
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
       const disposition = res.headers["content-disposition"];
       let filename = "expense_details.xlsx";
       
       if (disposition) {
-        const match = disposition.match(/filename="?(.+)"?/);
-        if (match && match[1]) filename = match[1];
+        const match = disposition.match(/filename="?([^";]+)"?/);
+        if (match && match[1]) filename = match[1].replace(/["']/g, '');
       }
       
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = window.URL.createObjectURL(blob);
-      link.download = filename;
+      link.href = url;
+      link.setAttribute("download", filename);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
     } catch (err) {
-      console.error("Export error:", err);
+      console.error("Server export failed, using client export fallback:", err);
       // Fallback client export
       try {
         const exportData = filteredTransactions.map(t => ({
@@ -397,11 +423,11 @@ const ExpensePage = () => {
         <FinancialCard
           icon={
             <div className={styles.iconOrange}>
-              <DollarSign className={`w-5 h-5 ${styles.textOrange}`} />
+              <IndianRupee className={`w-5 h-5 ${styles.textOrange}`} />
             </div>
           }
           label="Total Expenses"
-          value={`$${totalExpense.toLocaleString()}`}
+          value={`₹${totalExpense.toLocaleString()}`}
           additionalContent={
             <div className="mt-2 text-xs text-gray-500 flex items-center">
               <Calendar className="w-3 h-3 mr-1" /> {timeFrameRange.label}
@@ -417,7 +443,7 @@ const ExpensePage = () => {
             </div>
           }
           label="Average Expense"
-          value={`$${averageExpense.toLocaleString()}`}
+          value={`₹${averageExpense.toLocaleString()}`}
           additionalContent={
             <div className="mt-2 text-xs text-gray-500 flex items-center">
               <Calendar className="w-3 h-3 mr-1" /> {filteredTransactions.length} transactions
@@ -475,10 +501,10 @@ const ExpensePage = () => {
                 tickLine={false}
                 tick={{ fill: "#6b7280", fontSize: 12 }}
                 width={60}
-                tickFormatter={(value) => `$${value.toLocaleString()}`}
+                tickFormatter={(value) => `₹${value.toLocaleString()}`}
               />
               <Tooltip
-                formatter={(value) => [`$${Math.round(value).toLocaleString()}`, "Expense"]}
+                formatter={(value) => [`₹${Math.round(value).toLocaleString()}`, "Expense"]}
                 contentStyle={styles.tooltipContent}
               />
               <Area
@@ -509,7 +535,7 @@ const ExpensePage = () => {
       <div className={styles.transactionsContainer}>
         <div className={styles.transactionsHeader}>
           <h3 className={styles.transactionsTitle}>
-            <DollarSign className="w-6 h-6 -mx-1.5 lg:-mx-2 md:-mx-0 text-orange-500" />
+            <IndianRupee className="w-6 h-6 -mx-1.5 lg:-mx-2 md:-mx-0 text-orange-500" />
             Expense Transactions
             <span className="text-sm text-gray-500 font-normal"> ({timeFrameRange.label})</span>
           </h3>
@@ -578,7 +604,7 @@ const ExpensePage = () => {
           {filteredTransactions.length === 0 && (
             <div className={styles.emptyState}>
               <div className={styles.emptyStateIcon}>
-                <DollarSign className="w-8 h-8 text-orange-400" />
+                <IndianRupee className="w-8 h-8 text-orange-400" />
               </div>
               <p className={styles.emptyStateText}>No expense transactions found</p>
               <p className={styles.emptyStateSubtext}>

@@ -1,6 +1,6 @@
 import { 
   Utensils, Home, Car, ShoppingCart, Gift, 
-  TrendingUp, TrendingDown, DollarSign, 
+  TrendingUp, TrendingDown, IndianRupee, 
   BarChart2, ArrowUp, FileText, 
   Briefcase, CreditCard, ShoppingBag, 
   Film, Wifi, Heart
@@ -38,7 +38,7 @@ export const CATEGORY_ICONS_Inc = {
   Freelance: <BarChart2 className="w-4 h-4" />,
   Investment: <ArrowUp className="w-4 h-4" />,
   Bonus: <FileText className="w-4 h-4" />,
-  Other: <DollarSign className="w-4 h-4" />
+  Other: <IndianRupee className="w-4 h-4" />
 };
 
 export const CATEGORY_ICONS = {
@@ -51,7 +51,7 @@ export const CATEGORY_ICONS = {
   Healthcare: <Gift className="w-4 h-4" />,
   Salary: <TrendingUp className="w-4 h-4" />,
   Freelance: <TrendingDown className="w-4 h-4" />,
-  Other: <DollarSign className="w-4 h-4" />
+  Other: <IndianRupee className="w-4 h-4" />
 };
 
 // Enhanced category icons with more specific icons for income categories
@@ -60,7 +60,7 @@ export const INCOME_CATEGORY_ICONS = {
   Freelance: <CreditCard className="w-5 h-5 text-green-500" />,
   Investment: <TrendingUp className="w-5 h-5 text-green-500" />,
   Gift: <Gift className="w-5 h-5 text-green-500" />,
-  Other: <DollarSign className="w-5 h-5 text-green-500" />,
+  Other: <IndianRupee className="w-5 h-5 text-green-500" />,
 };
 
 export const EXPENSE_CATEGORY_ICONS = {

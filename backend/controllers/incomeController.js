@@ -78,7 +78,7 @@ export async function updateIncome(req, res) {
     try {
         const updateIncome = await incomeModel.findOneAndUpdate(
             {_id: id, userId},
-            {description: amount},
+            {description, amount},
             {new: true}
         );
 
@@ -136,28 +136,30 @@ export async function deleteIncome(req, res) {
 export async function downloadIncomeExcel(req, res) {
     const userId = req.user._id;
 
-    try{
+    try {
         const income = await incomeModel.find({userId}).sort({date: -1});
         const plainData = income.map((inc) => ({
             Description: inc.description,
             Amount: inc.amount,
             Category: inc.category,
-            Date: new Date(inc.data).toLocalDataString(),
+            Date: new Date(inc.date).toLocaleDateString(),
         }));
         const worksheet = XLSX.utils.json_to_sheet(plainData);
         const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "incomeModel");
-        XLSX.writeFile(workbook, "income_details.xlsx");
-        res.download('income_details.xlsx');
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Income Details");
+        
+        const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", 'attachment; filename="income_details.xlsx"');
+        return res.send(buffer);
     }
     catch (error) {
-        console.log(error);
+        console.log("Download Income Excel Error:", error);
         res.status(500).json({
             success: false,
             message: "Server Error"
         });
     }
-
 }
 
 
@@ -172,7 +174,7 @@ export async function getIncomeOverview(req, res) {
 
         const incomes = await incomeModel.find({
             userId,
-            date: {$gte: start, $1te: end},
+            date: {$gte: start, $lte: end},
         }).sort({date: -1});
 
         

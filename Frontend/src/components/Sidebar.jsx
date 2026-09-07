@@ -422,7 +422,7 @@ const Sidebar = ({ user, isCollapsed, setIsCollapsed }) => {
               sidebarStyles.footerLink.base,
               isCollapsed && sidebarStyles.footerLink.collapsed,
             )} 
-            to="https://hexagondigitalservices.com/contact"
+            to=""
             >
               <HelpCircle size={20} className="text-gray-500"/>
               {!isCollapsed && <span>Support</span>}

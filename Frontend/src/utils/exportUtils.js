@@ -12,11 +12,9 @@ export const exportToExcel = (data, filename = "transaction") => {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Transactions");
 
-    //Generate a Excel file and trigger download
-    XLSX.writeFile(workbook, `${filename}.xlsx`, {
-      bookType: "xlsx",
-      type: "array",
-    });
+    //Generate an Excel file and trigger download
+    const fullFilename = filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`;
+    XLSX.writeFile(workbook, fullFilename);
   } catch (error) {
     console.error("Export error:", error);
     alert("Error exporting data. Please try again.")

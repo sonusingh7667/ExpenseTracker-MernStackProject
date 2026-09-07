@@ -2,22 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react'
 // import layout from '../components/Layout'
 import { dashboardStyles, trendStyles, chartStyles } from '../assets/dummyStyles'
 import {GAUGE_COLORS, COLORS, INCOME_CATEGORY_ICONS, EXPENSE_CATEGORY_ICONS} from '../assets/color'
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useNavigate } from 'react-router-dom';
 import {getTimeFrameRange, getPreviousTimeFrameRange, calculateData} from '../components/Helpers'
 import axios from 'axios';
-import { ArrowDown, BarChart2, ChevronDown, TrendingUp as ProfitIcon, PieChart as PieChart, ChevronUp,PieChartIcon, DollarSign, PiggyBank, Plus, ShoppingCart, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { ArrowDown, BarChart2, ChevronDown, TrendingUp as ProfitIcon, ChevronUp, PieChartIcon, IndianRupee, PiggyBank, Plus, ShoppingCart, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { frame } from 'framer-motion';
 import FinancialCard from '../components/FinancialCard';
 import GaugeCard from '../components/GaugeCard';
-import { Cell, Legend, Pie, ResponsiveContainer, Tooltip } from 'recharts';
+import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import AddTransactionModal from '../components/Add';
+import { getAuthHeaders, handleAuthError } from '../utils/authUtils';
 
-const API_BASE = "http://localhost:4000";  //api
+const API_BASE = "http://localhost:4000/api";  //api
 
-const getAuthHeader = () => {
-    const token = localStorage.getItem("token") || localStorage.getItem("authToken");
-    return token ? {Authorization : `Bearer ${token}`} : {};
-}
+const getAuthHeader = () => getAuthHeaders();
 
 // to convert date to ISO timeline
 function toIsoWithClientTime(dateValue) {
@@ -43,6 +41,7 @@ function toIsoWithClientTime(dateValue) {
 
 
 const Dashboard = ({onLogout, user}) => {
+    const navigate = useNavigate();
     // get refreshTransactions from the outlet context
      const { 
     transactions: outletTransactions = [], 
@@ -52,7 +51,6 @@ const Dashboard = ({onLogout, user}) => {
   } = useOutletContext();
 
   const [showModal, setShowModal] = useState(false);
-  const [gaugeData, setGaugeData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [overviewMeta, setOverviewMeta] = useState({});
   const [showAllIncome, setShowAllIncome] = useState(false);    // to toggle
@@ -109,40 +107,29 @@ const Dashboard = ({onLogout, user}) => {
     return data;
   }, [prevFilteredTransactions]);
 
-
-  // update the gauge when time frame changes
-
-  useEffect(() => {
+  // Derived gauge data that updates immediately with every transaction change
+  const gaugeData = useMemo(() => {
+    const income = currentTimeFrameData.income;
+    const expenses = currentTimeFrameData.expenses;
+    const savings = currentTimeFrameData.savings;
     const maxValues = {
-      income: Math.max(currentTimeFrameData.income, 5000),
-      expenses: Math.max(currentTimeFrameData.expenses, 3000),
-      savings: Math.max(Math.abs(currentTimeFrameData.savings), 2000),
+      income: Math.max(income, 5000),
+      expenses: Math.max(expenses, 3000),
+      savings: Math.max(Math.abs(savings), 2000),
     };
 
-    setGaugeData([
-      { name: "Income", value: currentTimeFrameData.income, max: maxValues.income },
-      { name: "Spent", value: currentTimeFrameData.expenses, max: maxValues.expenses },
-      { name: "Savings", value: currentTimeFrameData.savings, max: maxValues.savings },
-    ]);
-  }, [currentTimeFrameData, timeFrame]);   // the graph will be fill according to this data
+    return [
+      { name: "Income", value: income, max: maxValues.income },
+      { name: "Spent", value: expenses, max: maxValues.expenses },
+      { name: "Savings", value: savings, max: maxValues.savings },
+    ];
+  }, [currentTimeFrameData]);
 
-  const displayIncome =
-    timeFrame === "monthly" && typeof overviewMeta.monthlyIncome === "number"
-      ? overviewMeta.monthlyIncome
-      : currentTimeFrameData.income;
+  const displayIncome = currentTimeFrameData.income;
+  const displayExpenses = currentTimeFrameData.expenses;
+  const displaySavings = currentTimeFrameData.savings;
 
-  const displayExpenses =
-    timeFrame === "monthly" && typeof overviewMeta.monthlyExpense === "number"
-      ? overviewMeta.monthlyExpense
-      : currentTimeFrameData.expenses;
-
-  const displaySavings =
-    timeFrame === "monthly" && typeof overviewMeta.savings === "number"
-      ? overviewMeta.savings
-      : currentTimeFrameData.savings;
-
-
-      // expense change percentage
+  // expense change percentage
   const expenseChange = useMemo(() => {
     const prev = prevTimeFrameData.expenses;
     const curr = displayExpenses;
@@ -153,26 +140,13 @@ const Dashboard = ({onLogout, user}) => {
     return Math.round(((curr - prev) / prev) * 100);
   }, [prevTimeFrameData, displayExpenses]);
 
-
-  //expense distribution
+  // expense distribution for Pie Chart
   const financialOverviewData = useMemo(() => {
-    if (
-      timeFrame === "monthly" &&
-      overviewMeta.expenseDistribution &&
-      Array.isArray(overviewMeta.expenseDistribution) &&
-      overviewMeta.expenseDistribution.length > 0
-    ) {
-      return overviewMeta.expenseDistribution.map((d) => ({
-        name: d.category,
-        value: Math.round(Number(d.amount) || 0),
-      }));
-    }
-
     const categories = {};
     filteredTransactions.forEach((transaction) => {
       if (transaction.type === "expense") {
-        categories[transaction.category] =
-          (categories[transaction.category] || 0) + transaction.amount;
+        const cat = transaction.category || "Other";
+        categories[cat] = (categories[cat] || 0) + (Number(transaction.amount) || 0);
       }
     });
 
@@ -180,17 +154,7 @@ const Dashboard = ({onLogout, user}) => {
       name: category,
       value: Math.round(categories[category]),
     }));
-  }, [filteredTransactions, overviewMeta, timeFrame]);
-
-
-  // build server-provider recent list
-    const serverRecent = overviewMeta.recentTransactions || [];
-  const serverRecentIncome = serverRecent
-    .filter((t) => t.type === "income")
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-  const serverRecentExpense = serverRecent
-    .filter((t) => t.type === "expense")
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [filteredTransactions]);
 
   const incomeTransactions = useMemo(
     () => filteredTransactions
@@ -206,23 +170,13 @@ const Dashboard = ({onLogout, user}) => {
     [filteredTransactions]
   );
 
-  const incomeListForDisplay =
-    timeFrame === "monthly" && serverRecentIncome.length > 0
-      ? serverRecentIncome
-      : incomeTransactions;
-
-  const expenseListForDisplay =
-    timeFrame === "monthly" && serverRecentExpense.length > 0
-      ? serverRecentExpense
-      : expenseTransactions;
-
   const displayedIncome = showAllIncome 
-    ? incomeListForDisplay 
-    : incomeListForDisplay.slice(0, 3);
+    ? incomeTransactions 
+    : incomeTransactions.slice(0, 3);
 
   const displayedExpense = showAllExpense 
-    ? expenseListForDisplay 
-    : expenseListForDisplay.slice(0, 3);
+    ? expenseTransactions 
+    : expenseTransactions.slice(0, 3);
 
 
 
@@ -281,32 +235,12 @@ const Dashboard = ({onLogout, user}) => {
           expenseDistribution: data.expenseDistribution || [],
           recentTransactions: recent,
         }));
-
-        if (timeFrame === "monthly") {
-          const monthlyIncome = Number(data.monthlyIncome || 0);
-          const monthlyExpense = Number(data.monthlyExpense || 0);
-          const savings =
-            typeof data.savings !== "undefined"
-              ? Number(data.savings)
-              : monthlyIncome - monthlyExpense;
-
-          const maxValues = {
-            income: Math.max(monthlyIncome, 5000),
-            expenses: Math.max(monthlyExpense, 3000),
-            savings: Math.max(Math.abs(savings), 2000),
-          };
-
-          setGaugeData([
-            { name: "Income", value: monthlyIncome, max: maxValues.income },
-            { name: "Spent", value: monthlyExpense, max: maxValues.expenses },
-            { name: "Savings", value: savings, max: maxValues.savings },
-          ]);
-        }
       } else {
         console.warn("Dashboard endpoint returned success:false", res?.data);
       }
     } catch (err) {
       console.error("Failed to fetch dashboard overview:", err?.response || err.message || err);
+      handleAuthError(err, navigate, onLogout);
     }  finally{
         setLoading(false);
     }
@@ -357,6 +291,7 @@ const Dashboard = ({onLogout, user}) => {
     } 
     catch (err) {
         console.log("Failed to add Transactions:", err?.response || err.message || err);
+        handleAuthError(err, navigate, onLogout);
     } finally{
         setLoading(false);
     }
@@ -402,15 +337,15 @@ const Dashboard = ({onLogout, user}) => {
                 <div className={dashboardStyles.walletIconContainer}>
                   <Wallet className='w-5 h-5 text-teal-600'/>
                 </div>
-              }  label="Total Balance" value={`$${Math.round(displayIncome - displayExpenses).toLocaleString()}`}
+              }  label="Total Balance" value={`₹${Math.round(displayIncome - displayExpenses).toLocaleString()}`}
               additionalContent={
                 <div className="flex items-center gap-2 mt-2 text-sm">
                   <span className={dashboardStyles.balanceBadge}>
-                    +${Math.round(displayIncome).toLocaleString()}
+                    +₹{Math.round(displayIncome).toLocaleString()}
                   </span>
 
                   <span className={dashboardStyles.expenseBadge}>
-                    -${Math.round(displayExpenses).toLocaleString()}
+                    -₹{Math.round(displayExpenses).toLocaleString()}
                   </span>
                 </div>
               }
@@ -422,7 +357,7 @@ const Dashboard = ({onLogout, user}) => {
                   <ArrowDown className='w-5 h-5 text-orange-600'/>
                 </div>
               }  label={`${timeFrameRange.label} Expenses`}
-               value={`$${Math.round(displayExpenses).toLocaleString()}`}
+               value={`₹${Math.round(displayExpenses).toLocaleString()}`}
               additionalContent={
                 <div className={`mt-2 text-xs flex items-center gap-1 ${
                   expenseChange >= 0 ? trendStyles.positive : trendStyles.negative
@@ -447,7 +382,7 @@ const Dashboard = ({onLogout, user}) => {
                   <PiggyBank className='w-5 h-5 text-cyan-600'/>
                 </div>
               }  label={`${timeFrameRange.label} Savings`}
-               value={`$${Math.round(displaySavings).toLocaleString()}`}
+               value={`₹${Math.round(displaySavings).toLocaleString()}`}
               additionalContent={
                 <div className="mt-2 text-xs text-cyan-600 flex items-center gap-2">
                   <div className="flex items-center gap-1">
@@ -461,11 +396,11 @@ const Dashboard = ({onLogout, user}) => {
 
 
                   {typeof overviewMeta.savingsRate === "number" && (
-                    <spna className={`px-2 py-2 rounded-full text-xs font-medium ${
+                    <span className={`px-2 py-2 rounded-full text-xs font-medium ${
                       overviewMeta.savingsRate < 0 ? trendStyles.negativeRate : trendStyles.positiveRate
                     }`}>
                       {overviewMeta.savingsRate}%
-                    </spna>
+                    </span>
                   )}
                 </div>
               }
@@ -498,48 +433,56 @@ const Dashboard = ({onLogout, user}) => {
         </div>
 
         <div className={dashboardStyles.pieChartHeight}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart className={chartStyles.pieChart}>
-              <Pie
-                data={financialOverviewData}
-                cx="50%"
-                cy="50%"
-                innerRadius={70}
-                outerRadius={110}
-                paddingAngle={2}
-                dataKey="value"
-                label={({ name, percent }) =>
-                  `${name}: ${Math.round(percent * 100)}%`
-                }
-                labelLine={false}
-              >
-                {financialOverviewData.map((entry, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={COLORS[index % COLORS.length]}
-                    stroke="#fff"
-                    strokeWidth={2}
-                  />
-                ))}
-              </Pie>
-              <Tooltip
-                formatter={(value) => [`$${Math.round(value).toLocaleString()}`, "Amount"]}
-                contentStyle={dashboardStyles.tooltipContent}
-                itemStyle={dashboardStyles.tooltipItem}
-              />
-              <Legend
-                layout="horizontal"
-                verticalAlign="bottom"
-                align="center"
-                formatter={(v) => (
-                  <span className={dashboardStyles.legendText}>{v}</span>
-                )}
-                iconSize={10}
-                iconType="circle"
-                wrapperStyle={dashboardStyles.legendWrapper}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+          {financialOverviewData.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart className={chartStyles.pieChart}>
+                <Pie
+                  data={financialOverviewData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={70}
+                  outerRadius={110}
+                  paddingAngle={2}
+                  dataKey="value"
+                  label={({ name, percent }) =>
+                    `${name}: ${Math.round(percent * 100)}%`
+                  }
+                  labelLine={false}
+                >
+                  {financialOverviewData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
+                      stroke="#fff"
+                      strokeWidth={2}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value) => [`₹${Math.round(value).toLocaleString()}`, "Amount"]}
+                  contentStyle={dashboardStyles.tooltipContent}
+                  itemStyle={dashboardStyles.tooltipItem}
+                />
+                <Legend
+                  layout="horizontal"
+                  verticalAlign="bottom"
+                  align="center"
+                  formatter={(v) => (
+                    <span className={dashboardStyles.legendText}>{v}</span>
+                  )}
+                  iconSize={10}
+                  iconType="circle"
+                  wrapperStyle={dashboardStyles.legendWrapper}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-gray-400 py-8">
+              <PieChartIcon className="w-12 h-12 text-gray-300 mb-2" />
+              <p className="text-sm font-medium text-gray-500">No expense records found ({timeFrameRange.label.toLowerCase()})</p>
+              <p className="text-xs text-gray-400 mt-1">Add an expense transaction to see category distribution</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -552,7 +495,7 @@ const Dashboard = ({onLogout, user}) => {
               <span className={dashboardStyles.listSubtitle}> ({timeFrameRange.label})</span>
             </h3>
             <span className={dashboardStyles.incomeCountBadge}>
-              {incomeListForDisplay.length} records
+              {incomeTransactions.length} records
             </span>
           </div>
 
@@ -571,23 +514,23 @@ const Dashboard = ({onLogout, user}) => {
                     </div>
                   </div>
                   <div className={dashboardStyles.transactionAmount}>
-                    <p className={dashboardStyles.incomeAmount}>+${Math.abs(transaction.amount).toLocaleString()}</p>
+                    <p className={dashboardStyles.incomeAmount}>+₹{Math.abs(transaction.amount).toLocaleString()}</p>
                     <p className={dashboardStyles.transactionDate}>{new Date(transaction.date).toLocaleDateString()}</p>
                   </div>
                 </div>
               );
             })}
 
-            {incomeListForDisplay.length === 0 && (
+            {incomeTransactions.length === 0 && (
               <div className={dashboardStyles.emptyState}>
                 <div className={dashboardStyles.emptyIconContainer("bg-green-50")}>
-                  <DollarSign className="w-8 h-8 text-green-400" />
+                  <IndianRupee className="w-8 h-8 text-green-400" />
                 </div>
                 <p className={dashboardStyles.emptyText}>No income transactions</p>
               </div>
             )}
 
-            {incomeListForDisplay.length > 3 && (
+            {incomeTransactions.length > 3 && (
               <div className={dashboardStyles.viewAllContainer}>
                 <button 
                   onClick={() => setShowAllIncome(!showAllIncome)}
@@ -601,7 +544,7 @@ const Dashboard = ({onLogout, user}) => {
                   ) : (
                     <>
                       <ChevronDown className="w-5 h-5" />
-                      View All Income ({incomeListForDisplay.length})
+                      View All Income ({incomeTransactions.length})
                     </>
                   )}
                 </button>
@@ -618,7 +561,7 @@ const Dashboard = ({onLogout, user}) => {
               <span className={dashboardStyles.listSubtitle}> ({timeFrameRange.label})</span>
             </h3>
             <span className={dashboardStyles.expenseCountBadge}>
-              {expenseListForDisplay.length} records
+              {expenseTransactions.length} records
             </span>
           </div>
 
@@ -637,14 +580,14 @@ const Dashboard = ({onLogout, user}) => {
                     </div>
                   </div>
                   <div className={dashboardStyles.transactionAmount}>
-                    <p className={dashboardStyles.expenseAmount}>-${Math.abs(transaction.amount).toLocaleString()}</p>
+                    <p className={dashboardStyles.expenseAmount}>-₹{Math.abs(transaction.amount).toLocaleString()}</p>
                     <p className={dashboardStyles.transactionDate}>{new Date(transaction.date).toLocaleDateString()}</p>
                   </div>
                 </div>
               );
             })}
 
-            {expenseListForDisplay.length === 0 && (
+            {expenseTransactions.length === 0 && (
               <div className={dashboardStyles.emptyState}>
                 <div className={dashboardStyles.emptyIconContainer("bg-orange-50")}>
                   <ShoppingCart className="w-8 h-8 text-orange-400" />
@@ -653,7 +596,7 @@ const Dashboard = ({onLogout, user}) => {
               </div>
             )}
 
-            {expenseListForDisplay.length > 3 && (
+            {expenseTransactions.length > 3 && (
               <div className={dashboardStyles.viewAllContainer}>
                 <button 
                   onClick={() => setShowAllExpense(!showAllExpense)}
@@ -667,7 +610,7 @@ const Dashboard = ({onLogout, user}) => {
                   ) : (
                     <>
                       <ChevronDown className="w-5 h-5" />
-                      View All Expenses ({expenseListForDisplay.length})
+                      View All Expenses ({expenseTransactions.length})
                     </>
                   )}
                 </button>

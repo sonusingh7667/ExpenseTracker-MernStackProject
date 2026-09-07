@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useNavigate } from "react-router-dom";
 import {
   Plus,
-  DollarSign,
+  IndianRupee,
   Download,
   Eye,
   Calendar,
@@ -23,6 +23,7 @@ import {
 } from "recharts";
 import axios from "axios";
 import { exportToExcel } from "../utils/exportUtils";
+import { getAuthHeaders, handleAuthError } from "../utils/authUtils";
 import AddTransactionModal from "../components/Add";
 import TransactionItem from "../components/TransactionItem";
 import TimeFrameSelector from "../components/TimeFrame";
@@ -101,11 +102,11 @@ const IncomeChart = ({ chartData, timeFrame, timeFrameRange }) => (
             tickLine={false}
             tick={{ fill: "#6b7280", fontSize: 12 }}
             width={50}
-            tickFormatter={(value) => `$${value.toLocaleString()}`}
+            tickFormatter={(value) => `₹${value.toLocaleString()}`}
           />
           <Tooltip
             formatter={(value) => [
-              `$${Math.round(value).toLocaleString()}`,
+              `₹${Math.round(value).toLocaleString()}`,
               "Income",
             ]}
             contentStyle={styles.tooltipContent}
@@ -170,6 +171,7 @@ const FilterSection = ({ filter, setFilter, handleExport }) => (
 );
 
 const Income = () => {
+  const navigate = useNavigate();
   const {
     transactions: outletTransactions = [],
     timeFrame = "monthly",
@@ -202,11 +204,6 @@ const Income = () => {
     category: "Salary",
     date: new Date().toISOString().split("T")[0],
   });
-
-  const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem("token");
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }, []);
 
   const timeFrameRange = useMemo(
     () => getTimeFrameRange(timeFrame, null),
@@ -270,15 +267,29 @@ const Income = () => {
 
     filteredTransactions.forEach((transaction) => {
       const transDate = new Date(transaction.date);
-      const point = data.find((d) =>
-        timeFrame === "daily"
-          ? d.hour === transDate.getHours()
-          : timeFrame === "yearly"
-            ? d.date.getMonth() === transDate.getMonth()
-            : d.date.getDate() === transDate.getDate() &&
-              d.date.getMonth() === transDate.getMonth(),
-      );
-      point && (point.income += Math.round(Number(transaction.amount)));
+      const amt = Math.round(Number(transaction.amount) || 0);
+
+      const point = data.find((d) => {
+        if (timeFrame === "daily") {
+          return d.hour === transDate.getHours();
+        } else if (timeFrame === "weekly" || timeFrame === "monthly") {
+          return (
+            d.dayOfMonth === transDate.getDate() &&
+            d.month === transDate.getMonth() &&
+            d.year === transDate.getFullYear()
+          );
+        } else if (timeFrame === "yearly") {
+          return (
+            d.month === transDate.getMonth() &&
+            d.year === transDate.getFullYear()
+          );
+        }
+        return false;
+      });
+
+      if (point) {
+        point.income += amt;
+      }
     });
 
     return data;
@@ -304,9 +315,10 @@ const Income = () => {
         }
       } catch (err) {
         console.error("Failed to fetch overview:", err);
+        handleAuthError(err, navigate);
       }
     },
-    [timeFrame, getAuthHeaders],
+    [timeFrame, navigate],
   );
 
   useEffect(() => {
@@ -315,32 +327,24 @@ const Income = () => {
 
   const totalIncome = useMemo(
     () =>
-      overview.totalIncome ??
       filteredTransactions.reduce(
         (sum, t) => sum + Math.round(Number(t.amount || 0)),
         0,
       ),
-    [overview.totalIncome, filteredTransactions],
+    [filteredTransactions],
   );
 
   const averageIncome = useMemo(
     () =>
-      overview.averageIncome
-        ? Math.round(overview.averageIncome)
-        : filteredTransactions.length
-          ? Math.round(
-              filteredTransactions.reduce(
-                (s, t) => s + Math.round(Number(t.amount || 0)),
-                0,
-              ) / filteredTransactions.length,
-            )
-          : 0,
-    [overview.averageIncome, filteredTransactions],
+      filteredTransactions.length
+        ? Math.round(totalIncome / filteredTransactions.length)
+        : 0,
+    [filteredTransactions, totalIncome],
   );
 
   const transactionsCount = useMemo(
-    () => overview.numberOfTransactions ?? filteredTransactions.length,
-    [overview.numberOfTransactions, filteredTransactions],
+    () => filteredTransactions.length,
+    [filteredTransactions],
   );
 
   const handleAddTransaction = useCallback(async () => {
@@ -372,17 +376,19 @@ const Income = () => {
       setShowModal(false);
     } catch (err) {
       console.error("Add income error:", err);
-      const serverMsg = err?.response?.data?.message;
-      alert(serverMsg || "Server error while adding income.");
+      if (!handleAuthError(err, navigate)) {
+        const serverMsg = err?.response?.data?.message;
+        alert(serverMsg || "Server error while adding income.");
+      }
     } finally {
       setLoading(false);
     }
   }, [
     newTransaction,
-    getAuthHeaders,
     refreshTransactions,
     fetchOverview,
     timeFrame,
+    navigate,
   ]);
 
   const handleEditTransaction = useCallback(async () => {
@@ -408,18 +414,20 @@ const Income = () => {
       setEditingId(null);
     } catch (err) {
       console.error("Update income error:", err);
-      const serverMsg = err?.response?.data?.message;
-      alert(serverMsg || "Server error while updating income.");
+      if (!handleAuthError(err, navigate)) {
+        const serverMsg = err?.response?.data?.message;
+        alert(serverMsg || "Server error while updating income.");
+      }
     } finally {
       setLoading(false);
     }
   }, [
     editingId,
     editForm,
-    getAuthHeaders,
     refreshTransactions,
     fetchOverview,
     timeFrame,
+    navigate,
   ]);
 
   const handleDeleteTransaction = useCallback(
@@ -438,13 +446,15 @@ const Income = () => {
         await fetchOverview(timeFrame ?? "monthly");
       } catch (err) {
         console.error("Delete income error:", err);
-        const serverMsg = err?.response?.data?.message;
-        alert(serverMsg || "Server error while deleting income.");
+        if (!handleAuthError(err, navigate)) {
+          const serverMsg = err?.response?.data?.message;
+          alert(serverMsg || "Server error while deleting income.");
+        }
       } finally {
         setLoading(false);
       }
     },
-    [getAuthHeaders, refreshTransactions, fetchOverview, timeFrame],
+    [refreshTransactions, fetchOverview, timeFrame, navigate],
   );
 
   const handleExport = useCallback(async () => {
@@ -454,23 +464,35 @@ const Income = () => {
         responseType: "blob",
       });
 
+      if (res.data.type === "application/json") {
+        const text = await res.data.text();
+        let errorMsg = "Export failed";
+        try {
+          const json = JSON.parse(text);
+          errorMsg = json.message || errorMsg;
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+
       const blob = new Blob([res.data], {
-        type: res.headers["content-type"] || "application/octet-stream",
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
       const disposition = res.headers["content-disposition"];
       let filename = "income_details.xlsx";
       if (disposition) {
-        const match = disposition.match(/filename="?(.+)"?/);
-        if (match && match[1]) filename = match[1];
+        const match = disposition.match(/filename="?([^";]+)"?/);
+        if (match && match[1]) filename = match[1].replace(/["']/g, '');
       }
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = window.URL.createObjectURL(blob);
-      link.download = filename;
+      link.href = url;
+      link.setAttribute("download", filename);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
     } catch (err) {
-      console.error("Export error:", err);
+      console.error("Server export failed, using client export fallback:", err);
       try {
         const exportData = filteredTransactions.map((t) => ({
           Date: new Date(t.date).toLocaleDateString(),
@@ -524,13 +546,13 @@ const Income = () => {
         <FinancialCard
           icon={
             <div className={styles.iconGreen}>
-              <DollarSign
+              <IndianRupee
                 className={`w-4 h-4 md:w-5 md:h-5 ${styles.textGreen}`}
               />
             </div>
           }
           label="Total Income"
-          value={`$${Number(totalIncome || 0).toLocaleString()}`}
+          value={`₹${Number(totalIncome || 0).toLocaleString()}`}
           additionalContent={
             <div className="mt-2 text-xs text-gray-500 flex items-center">
               <Calendar className="w-3 h-3 mr-1" /> {timeFrameRange.label}
@@ -547,7 +569,7 @@ const Income = () => {
             </div>
           }
           label="Average Income"
-          value={`$${Number(averageIncome || 0).toLocaleString()}`}
+          value={`₹${Number(averageIncome || 0).toLocaleString()}`}
           additionalContent={
             <div className="mt-2 text-xs text-gray-500 flex items-center">
               <Calendar className="w-3 h-3 mr-1" /> {transactionsCount}{" "}
@@ -584,7 +606,7 @@ const Income = () => {
       <div className={styles.listContainer}>
         <div className={styles.header}>
           <h3 className={styles.sectionTitle}>
-            <DollarSign className="w-5 h-5 md:w-6 md:h-6 text-green-500" />
+            <IndianRupee className="w-5 h-5 md:w-6 md:h-6 text-green-500" />
             Income Transactions
             <span className="text-sm text-gray-500 font-normal">
               {" "}
@@ -631,7 +653,7 @@ const Income = () => {
           {filteredTransactions.length === 0 && (
             <div className={styles.emptyStateContainer}>
               <div className={styles.emptyStateIcon}>
-                <DollarSign className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
+                <IndianRupee className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
               </div>
               <p className={styles.emptyStateText}>
                 No income transactions found

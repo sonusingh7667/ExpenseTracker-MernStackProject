@@ -4,17 +4,18 @@ import expenseModel from "../models/expenseModel.js";
 export async function  getDashboardOverview(req, res) {
     const userId = req.user._id;
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
     try {
       const incomes = await incomeModel.find({
         userId, 
-        date: {$gte: startOfMonth, $lte: now},
+        date: {$gte: startOfMonth, $lte: endOfMonth},
       }).lean();
       
-      const expense = await expenseModel.find({
+      const expenses = await expenseModel.find({
         userId,
-        date: {$gte: startOfMonth, $lte: now},
+        date: {$gte: startOfMonth, $lte: endOfMonth},
       }).lean();
 
       
@@ -41,19 +42,21 @@ export async function  getDashboardOverview(req, res) {
       percent: monthlyExpense === 0 ? 0 : Math.round((amount / monthlyExpense) * 100),
     }));  //for chart
 
+    const responsePayload = {
+      monthlyIncome,
+      monthlyExpense,
+      savings,
+      savingsRate,
+      recentTransactions,
+      spendByCategory,
+      expenseDistribution
+    };
 
     return res.status(200).json({
         success: true,
-        date:{
-            monthlyIncome,
-            monthlyExpense,
-            savings,
-            savingsRate,
-            recentTransactions,
-            spendByCategory,
-            expenseDistribution
-        }
-    })
+        data: responsePayload,
+        date: responsePayload
+    });
 
 
     } 

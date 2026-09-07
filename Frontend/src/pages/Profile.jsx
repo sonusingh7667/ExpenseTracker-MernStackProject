@@ -5,6 +5,7 @@ import { Eye, EyeOff, Lock, User, X } from "lucide-react";
 import { data, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast, ToastContainer } from "react-toastify";
+import { getToken, handleAuthError } from "../utils/authUtils";
 
 const BASE_URL = "http://localhost:4000/api";
 
@@ -71,11 +72,11 @@ const Profile = ({ onUpdateProfile, onLogout }) => {
   const [passwordErrors, setPasswordErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
-  const getAuthToken = useCallback(() => localStorage.getItem("token"), []);
+  const getAuthToken = useCallback(() => getToken(), []);
 
   //API request
   const handleApiRequest = useCallback(
-    async (method, getEndPoints, data = null) => {
+    async (method, endpoint, data = null) => {
       const token = getAuthToken();
       if (!token) {
         navigate("/login");
@@ -95,15 +96,13 @@ const Profile = ({ onUpdateProfile, onLogout }) => {
         return response.data;
       } catch (error) {
         console.log(`${method} request error:`, error);
-        if (error.response?.status === 401) {
-          navigate("/login");
-        }
+        handleAuthError(error, navigate, onLogout);
         throw error;
       } finally {
         setLoading(false);
       }
     },
-    [getAuthToken, navigate],
+    [getAuthToken, navigate, onLogout],
   );
 
   // to fetch current user

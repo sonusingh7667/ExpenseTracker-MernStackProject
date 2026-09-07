@@ -2,11 +2,12 @@ import React, {Activity,  useState, useEffect, useMemo } from 'react';
 import {styles} from '../assets/dummyStyles';
 import Navbar from './Navbar';
 import Sidebar from './Sidebar';
-import { ArrowDown, ArrowUp, Car, ChevronDown, ChevronUp, Clock, CreditCard, DollarSign, Gift, Home, Info, PieChart, PiggyBank, RefreshCw, ShoppingCart, TrendingUp, Utensils, Zap } from 'lucide-react';
+import { ArrowDown, ArrowUp, Car, ChevronDown, ChevronUp, Clock, CreditCard, IndianRupee, Gift, Home, Info, PieChart, PiggyBank, RefreshCw, ShoppingCart, TrendingUp, Utensils, Zap } from 'lucide-react';
 import axios from 'axios';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
+import { getAuthHeaders, handleAuthError } from '../utils/authUtils';
 
-const API_BASE = "http://localhost:5173/api";
+const API_BASE = "http://localhost:4000/api";
 
 const CATEGORY_ICONS = {
   Food: <Utensils className="w-4 h-4" />,
@@ -25,20 +26,36 @@ const CATEGORY_ICONS = {
 
 const filterTransactions = (transactions, frame) => {
   const now = new Date();
-  const today = new Date(now).setHours(0, 0, 0, 0);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
   switch (frame) {
     case "daily":
-      return transactions.filter((t) => new Date(t.date) >= today);
+      return transactions.filter((t) => {
+        const d = new Date(t.date);
+        return d >= todayStart && d <= todayEnd;
+      });
     case "weekly": {
-      const startOfWeek = new Date(today);
-      startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-      return transactions.filter((t) => new Date(t.date) >= startOfWeek);
+      const startOfWeek = new Date(todayStart);
+      startOfWeek.setDate(todayStart.getDate() - todayStart.getDay());
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      endOfWeek.setHours(23, 59, 59, 999);
+      return transactions.filter((t) => {
+        const d = new Date(t.date);
+        return d >= startOfWeek && d <= endOfWeek;
+      });
     }
     case "monthly":
-      return transactions.filter(
-        (t) => new Date(t.date).getMonth() === now.getMonth()
-      );
+      return transactions.filter((t) => {
+        const d = new Date(t.date);
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      });
+    case "yearly":
+      return transactions.filter((t) => {
+        const d = new Date(t.date);
+        return d.getFullYear() === now.getFullYear();
+      });
     default:
       return transactions;
   }
@@ -58,6 +75,7 @@ const safeArrayFromResponse = (res) => {
 
 
 const Layout = ({onLogout, user}) => {
+    const navigate = useNavigate();
     const [transactions, setTransactions] = useState([]);
     const [timeFrame, setTimeFrame] = useState("monthly");
     const [loading, setLoading] = useState(false);
@@ -69,8 +87,7 @@ const Layout = ({onLogout, user}) => {
        const fetchTransactions = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const headers = getAuthHeaders();
 
       const [incomeRes, expenseRes] = await Promise.all([
         axios.get(`${API_BASE}/income/get`, { headers }),
@@ -105,6 +122,7 @@ const Layout = ({onLogout, user}) => {
         "Failed to fetch transactions",
         err?.response || err.message || err
       );
+      handleAuthError(err, navigate, onLogout);
     } finally {
       setLoading(false);
     }
@@ -114,8 +132,7 @@ const Layout = ({onLogout, user}) => {
   //to add transaction either income or expense
   const addTransaction = async (transaction) => {
     try {
-      const token = localStorage.getItem("token");
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const headers = getAuthHeaders();
       const endpoint =
         transaction.type === "income" ? "income/add" : "expense/add";
       await axios.post(`${API_BASE}/${endpoint}`, transaction, { headers });
@@ -126,7 +143,9 @@ const Layout = ({onLogout, user}) => {
         "Failed to add transaction",
         err?.response || err.message || err
       );
-      throw err;
+      if (!handleAuthError(err, navigate, onLogout)) {
+        throw err;
+      }
     }
   };
 
@@ -134,8 +153,7 @@ const Layout = ({onLogout, user}) => {
   //to update any transaction
   const editTransaction = async (id, transaction) => {
     try {
-      const token = localStorage.getItem("token");
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const headers = getAuthHeaders();
       const endpoint =
         transaction.type === "income" ? "income/update" : "expense/update";
       await axios.put(`${API_BASE}/${endpoint}/${id}`, transaction, {
@@ -148,7 +166,9 @@ const Layout = ({onLogout, user}) => {
         "Failed to edit transaction",
         err?.response || err.message || err
       );
-      throw err;
+      if (!handleAuthError(err, navigate, onLogout)) {
+        throw err;
+      }
     }
   };
 
@@ -156,8 +176,7 @@ const Layout = ({onLogout, user}) => {
   //to delete a transaction
   const deleteTransaction = async (id, type) => {
     try {
-      const token = localStorage.getItem("token");
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const headers = getAuthHeaders();
       const endpoint = type === "income" ? "income/delete" : "expense/delete";
       await axios.delete(`${API_BASE}/${endpoint}/${id}`, { headers });
       await fetchTransactions();
@@ -167,7 +186,9 @@ const Layout = ({onLogout, user}) => {
         "Failed to delete transaction",
         err?.response || err.message || err
       );
-      throw err;
+      if (!handleAuthError(err, navigate, onLogout)) {
+        throw err;
+      }
     }
   };
 
@@ -260,7 +281,8 @@ const Layout = ({onLogout, user}) => {
   );
 
   const outletContext = {
-    transactions: filteredTransactions,
+    transactions: transactions,
+    filteredTransactions,
     addTransaction,
     editTransaction,
     deleteTransaction,
@@ -317,18 +339,18 @@ const Layout = ({onLogout, user}) => {
               <div>
                 <p className={styles.statCards.cardTitle}>Total Balance</p>
                 <p className={styles.statCards.cardValue}>
-                 ${stats.allTimeSavings.toLocaleString("en-US", {
+                 ₹{stats.allTimeSavings.toLocaleString("en-IN", {
                    maximumFractionDigits: 2,
                     })}
                   </p>
               </div>
               <div className={styles.statCards.iconContainer("teal")}>
-                <DollarSign className={styles.statCards.icon("teal")}></DollarSign>
+                <IndianRupee className={styles.statCards.icon("teal")}></IndianRupee>
               </div>
             </div>
             <p className={styles.statCards.cardFooter}>
               <span className="text-teal-600 font-medium">
-                +${stats.last30DaysSavings.toLocaleString()}
+                +₹{stats.last30DaysSavings.toLocaleString()}
               </span>{" "}
               this month
             </p>
@@ -341,7 +363,7 @@ const Layout = ({onLogout, user}) => {
               <div>
                 <p className={styles.statCards.cardTitle}>Monthly Income</p>
                 <p className={styles.statCards.cardValue}>
-                  ${stats.last30DaysIncome.toLocaleString("en-US", {
+                  ₹{stats.last30DaysIncome.toLocaleString("en-IN", {
                   maximumFractionDigits: 2,
                     })}
                   </p>
@@ -364,7 +386,7 @@ const Layout = ({onLogout, user}) => {
               <div>
                 <p className={styles.statCards.cardTitle}>Monthly Expense</p>
                 <p className={styles.statCards.cardValue}>
-                  ${stats.last30DaysExpenses.toLocaleString("en-US", {
+                  ₹{stats.last30DaysExpenses.toLocaleString("en-IN", {
                   maximumFractionDigits: 2,
                   })}
                   </p>
@@ -447,7 +469,7 @@ const Layout = ({onLogout, user}) => {
                     </div>
 
                     <div className={styles.transactions.listContainer}>
-                      {displayedTransactions.map((transactions) => {
+                      {displayedTransactions.map((transaction) => {
                         const {id, type, category, description, date, amount} = transaction;
                         return (
                           <div key={id} className={styles.transactions.transactionItem}>
@@ -455,7 +477,7 @@ const Layout = ({onLogout, user}) => {
                               <div className={`p-2 rounded-lg ${styles.colors.transaction.bg(
                                 type
                               )}`}>
-                                {CATEGORY_ICONS[category] ||( <DollarSign className={styles.transactions.icon}/>)}
+                                {CATEGORY_ICONS[category] ||( <IndianRupee className={styles.transactions.icon}/>)}
                               </div>
 
                               <div className={styles.transactions.details}>
@@ -474,7 +496,7 @@ const Layout = ({onLogout, user}) => {
                           
 
                           <span className={styles.colors.transaction.text(type)}>
-                            {type == "income" ? "+" : "-"}${Number(amount)}
+                            {type == "income" ? "+" : "-"}₹{Number(amount)}
                           </span>
                           </div>
                         );
@@ -523,11 +545,11 @@ const Layout = ({onLogout, user}) => {
                           <div className="flex items-center gap-3">
                             <div className={styles.categories.categoryIconContainer}>
                               {CATEGORY_ICONS[category] || (
-                                <DollarSign className={styles.categories.categoryIcon} />
+                                <IndianRupee className={styles.categories.categoryIcon} />
                               )}
                               <span className={styles.categories.categoryName}>{category}</span>
                             </div>
-                            <span className={styles.categories.categoryAmount}>${amount}</span>
+                            <span className={styles.categories.categoryAmount}>₹{amount}</span>
                           </div>
                         </div>
                       ))}
@@ -541,7 +563,7 @@ const Layout = ({onLogout, user}) => {
                           </p>
 
                           <p className={styles.categories.summaryValue}>
-                            ${stats.allTimeIncome.toLocaleString()}
+                            ₹{stats.allTimeIncome.toLocaleString()}
                           </p>
                         </div>
 
@@ -552,7 +574,7 @@ const Layout = ({onLogout, user}) => {
                           </p>
 
                           <p className={styles.categories.summaryValue}>
-                            ${stats.allTimeExpenses.toLocaleString()}
+                            ₹{stats.allTimeExpenses.toLocaleString()}
                           </p>
                         </div>
 
